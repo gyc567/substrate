@@ -144,10 +144,11 @@ impl<S, Block: BlockT> RemoteBlockchain<Block> for Blockchain<S>
 		Block::Header,
 		RemoteHeaderRequest<Block::Header>,
 	>> {
-		// first, try to read header from local storage
-		if let Some(local_header) = self.storage.header(id)? {
-			return Ok(LocalOrRemote::Local(local_header));
-		}
+		// the order of calls (number_by_hash() + then header()) matters here:
+		// if we' use reversed calls order (i.e. header() then number_by_hash())
+		// AND header() will be called before import completes (i.e. will return None)
+		// AND number_by_hash() will be called after import completes (i.e. will return Some)
+		// THEN we'll think that the header is a part of CHT, even though it is still not
 
 		// we need to know block number to check if it's a part of CHT
 		let number = match id {
@@ -157,6 +158,11 @@ impl<S, Block: BlockT> RemoteBlockchain<Block> for Blockchain<S>
 			},
 			BlockId::Number(number) => number,
 		};
+
+		// first, try to read header from local storage
+		if let Some(local_header) = self.storage.header(id)? {
+			return Ok(LocalOrRemote::Local(local_header));
+		}
 
 		// if the header is genesis (never pruned), non-canonical, or from future => return
 		if number.is_zero() || self.storage.status(BlockId::Number(number))? == BlockStatus::Unknown {
